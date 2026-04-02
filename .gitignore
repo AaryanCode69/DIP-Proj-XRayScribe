@@ -2,3 +2,5 @@ rules.md
 architectureplan.md
 executionplan.md
 /venv
+__pycache__/
+*.pyc
