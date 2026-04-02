@@ -1,0 +1,13 @@
+seed: 42
+image:
+  height: 512
+  width: 512
+  channels: 1
+dip:
+  tile_size: [32, 32]
+  clip_limit: 40
+  morphology_kernel_size: 3
+train:
+  batch_size: 8
+  epochs: 30
+  lr: 0.0001
