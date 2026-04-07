@@ -4,6 +4,8 @@
 
 [cite_start]The primary objective of this project is to bridge the gap between visual image quality and the textual accuracy of automated radiology reports[cite: 14]. [cite_start]This system acts as a hybrid framework, combining mathematical Digital Image Processing (DIP) algorithms with an attention-based Deep Learning Encoder-Decoder architecture[cite: 16].
 
+Runtime standard: use Python 3.10.14 for development and validation. This matches the environment used for the existing Phase 1 and Phase 2 implementation and reduces dependency drift while the rest of the pipeline is built.
+
 [cite_start]By forcing raw X-rays through a strict enhancement and segmentation pipeline before neural network ingestion, this project resolves the issue of AI models hallucinating reports due to low-dynamic-range "blindness" in raw medical scans[cite: 29, 31].
 
 ## 🏗️ Architecture & Pipeline Breakdown
