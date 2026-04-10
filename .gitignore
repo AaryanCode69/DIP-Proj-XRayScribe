@@ -6,3 +6,4 @@ executionplan.md
 __pycache__/
 *.pyc
 *.pt
+.env
