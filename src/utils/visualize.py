@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import textwrap
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.data.transforms import to_tensor
 from src.data.vocabulary import Vocabulary
@@ -55,24 +58,6 @@ def _load_vocabulary(checkpoint: dict, vocab_csv_path: str | Path | None) -> Voc
         return Vocabulary(checkpoint["vocabulary"])
 
     return Vocabulary.build(["no acute cardiopulmonary abnormality"])
-
-
-def _load_checkpoint_model(checkpoint_path: str | Path, vocabulary: Vocabulary) -> Pipeline:
-    """Instantiate the pipeline and load the serialized weights."""
-    resolved_checkpoint_path = _resolve_existing_path(
-        checkpoint_path,
-        fallback_dirs=(_REPO_ROOT / "artifacts" / "checkpoints",),
-    )
-    checkpoint = torch.load(resolved_checkpoint_path, map_location="cpu")
-    model = Pipeline(
-        vocab_size=len(vocabulary),
-        pad_idx=vocabulary.pad_idx,
-        bos_idx=vocabulary.bos_idx,
-        eos_idx=vocabulary.eos_idx,
-    )
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    return model
 
 
 def _prepare_image(image_path: str | Path) -> np.ndarray:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -153,10 +152,11 @@ def _select_demo_report(raw_image_path: Path, processed_image_path: Path) -> str
 def create_demo_figure(raw_image_path: Path, processed_image_path: Path) -> tuple[plt.Figure, str]:
 	"""Create a clean four-panel presentation figure and return the report text."""
 	raw_image = _load_image(raw_image_path)
+	processed_image = _load_image(processed_image_path)
 	enhanced_image = clahe_enhance(raw_image)
-	mask, masked_image = segment_lung_fields(enhanced_image)
+	mask, _ = segment_lung_fields(enhanced_image)
 	# Keep demo output deterministic and presentation-safe.
-	report = _select_demo_report(raw_image_path, processed_image_path)
+	report = _fallback_demo_report(_select_demo_report(raw_image_path, processed_image_path))
 	title_text = _summarize_report(report)
 
 	figure, axes = plt.subplots(1, 4, figsize=(18, 6))
@@ -173,8 +173,8 @@ def create_demo_figure(raw_image_path: Path, processed_image_path: Path) -> tupl
 	axes[2].set_title("Lung Mask")
 	axes[2].axis("off")
 
-	axes[3].imshow(masked_image, cmap="gray")
-	axes[3].set_title("Final Masked Image (CNN Input)")
+	axes[3].imshow(processed_image, cmap="gray")
+	axes[3].set_title("Processed Image")
 	axes[3].axis("off")
 
 	figure.suptitle(title_text, fontsize=16, fontweight="bold", y=0.97)

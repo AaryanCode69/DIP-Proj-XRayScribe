@@ -70,7 +70,7 @@ def analyze_xray_with_gpt4o(image_path: str | Path) -> str:
 		],
 	)
 
-	return response.choices[0].message.content.strip()
+	return (response.choices[0].message.content or "").strip()
 
 
 def generate_clinical_report(image_path: str | Path) -> str:
