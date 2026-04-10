@@ -49,3 +49,62 @@ To prevent the neural network from processing irrelevant background data, the en
 - [cite_start]**Source:** OpenI (Open Access Biomedical Image Search Engine) via the National Library of Medicine (NLM)[cite: 155].
 - [cite_start]**Contents:** 7,470 chest X-ray images and 3,955 structured XML radiology reports[cite: 150, 152].
 - [cite_start]**Target Sections:** The text generation specifically targets the "Findings" and "Impression" sections of the XML reports[cite: 153].
+
+## OpenAI Vision Inference (Optional)
+
+Use this utility to generate a short radiology-style finding from a DIP-enhanced X-ray image using GPT-4o.
+
+### 1) Install dependencies
+
+```bash
+pip install openai python-dotenv pillow
+```
+
+### 2) Create a .env file in the project root
+
+```env
+OPENAI_API_KEY=your_api_key_here
+```
+
+### 3) Run the script
+
+Auto-pick the first image from `dataset/processed` or `data/processed`:
+
+```bash
+python src/inference_openai.py
+```
+
+Use a specific image path:
+
+```bash
+python src/inference_openai.py --image-path data/processed/sample.png
+```
+
+### 4) What it does
+
+- Loads environment variables from `.env`
+- Encodes the local image to base64
+- Calls `gpt-4o` with:
+	- Role: Radiologist
+	- Task: "Analyze this DIP-enhanced X-ray (CLAHE + Segmented) and provide a clinical finding in under 15 words."
+
+## Presentation Demo Figure
+
+Use this utility to generate the side-by-side figure for your presentation and save it as `DIP_Success_Demo.png`.
+
+```bash
+python src/display_results.py
+```
+
+If you want to use explicit files instead of auto-discovery:
+
+```bash
+python src/display_results.py --raw-image-path data/raw/sample.png --processed-image-path data/processed/sample.png
+```
+
+The figure shows:
+
+- Left: Raw image
+- Right: DIP-Processed image
+- Top title: The generated DIP output report in bold, centered text
+- Saved file: `DIP_Success_Demo.png` at 300 DPI
