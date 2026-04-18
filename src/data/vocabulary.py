@@ -78,15 +78,24 @@ class Vocabulary:
         cls,
         csv_path: str | Path,
         column_name: str = "report_text",
+        fallback_column_names: Iterable[str] = ("report",),
         min_freq: int = 1,
     ) -> "Vocabulary":
         """Build vocabulary directly from a manifest CSV text column."""
         path = Path(csv_path)
         with path.open("r", newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
-            if reader.fieldnames is None or column_name not in reader.fieldnames:
-                raise ValueError(f"Column '{column_name}' not found in CSV: {path}")
-            texts = [row.get(column_name, "") for row in reader]
+            if reader.fieldnames is None:
+                raise ValueError(f"CSV has no header row: {path}")
+
+            candidate_columns = (column_name, *fallback_column_names)
+            selected_column = next((name for name in candidate_columns if name in reader.fieldnames), None)
+            if selected_column is None:
+                available = ", ".join(reader.fieldnames)
+                expected = ", ".join(candidate_columns)
+                raise ValueError(f"Expected one of [{expected}] in CSV {path}, found [{available}]")
+
+            texts = [row.get(selected_column, "") for row in reader]
         return cls.build(texts=texts, min_freq=min_freq)
 
     def _resolve_idx(self, primary: str, fallback: str | None = None) -> int:

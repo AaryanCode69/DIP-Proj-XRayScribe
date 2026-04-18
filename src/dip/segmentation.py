@@ -4,25 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.dip.common import ensure_grayscale_image, normalize_to_uint8
+
 
 def _normalize_to_uint8(image: np.ndarray) -> np.ndarray:
-    """Convert arbitrary grayscale image to uint8 range [0, 255]."""
-    if image.dtype == np.uint8:
-        return image.copy()
-
-    arr = image.astype(np.float32)
-    min_val = float(arr.min())
-    max_val = float(arr.max())
-
-    if min_val >= 0.0 and max_val <= 1.0:
-        return np.clip(np.rint(arr * 255.0), 0.0, 255.0).astype(np.uint8)
-    if min_val >= 0.0 and max_val <= 255.0:
-        return np.clip(np.rint(arr), 0.0, 255.0).astype(np.uint8)
-    if max_val == min_val:
-        return np.zeros_like(arr, dtype=np.uint8)
-
-    scaled = (arr - min_val) / (max_val - min_val)
-    return np.clip(np.rint(scaled * 255.0), 0.0, 255.0).astype(np.uint8)
+    """Backward-compatible wrapper around the shared uint8 normalization helper."""
+    return normalize_to_uint8(image)
 
 
 def _validate_kernel_size(kernel_size: int) -> None:
@@ -35,10 +22,9 @@ def _validate_kernel_size(kernel_size: int) -> None:
 
 def otsu_threshold(image: np.ndarray) -> int:
     """Compute Otsu threshold from scratch for a grayscale image."""
-    if image.ndim != 2:
-        raise ValueError(f"Expected 2D grayscale image, got shape={image.shape}")
+    ensure_grayscale_image(image)
 
-    image_uint8 = _normalize_to_uint8(image)
+    image_uint8 = normalize_to_uint8(image)
     hist = np.bincount(image_uint8.ravel(), minlength=256).astype(np.float64)
 
     total_pixels = image_uint8.size
@@ -78,15 +64,7 @@ def binary_erosion(mask: np.ndarray, kernel_size: int = 3, iterations: int = 1) 
     if mask.ndim != 2:
         raise ValueError(f"Expected 2D binary mask, got shape={mask.shape}")
 
-    current = mask.astype(bool)
-    pad = kernel_size // 2
-
-    for _ in range(iterations):
-        padded = np.pad(current, ((pad, pad), (pad, pad)), mode="constant", constant_values=False)
-        windows = np.lib.stride_tricks.sliding_window_view(padded, (kernel_size, kernel_size))
-        current = np.all(windows, axis=(-2, -1))
-
-    return current.astype(np.uint8)
+    return _binary_morphology(mask, kernel_size=kernel_size, iterations=iterations, reducer=np.all)
 
 
 def binary_dilation(mask: np.ndarray, kernel_size: int = 3, iterations: int = 1) -> np.ndarray:
@@ -97,15 +75,7 @@ def binary_dilation(mask: np.ndarray, kernel_size: int = 3, iterations: int = 1)
     if mask.ndim != 2:
         raise ValueError(f"Expected 2D binary mask, got shape={mask.shape}")
 
-    current = mask.astype(bool)
-    pad = kernel_size // 2
-
-    for _ in range(iterations):
-        padded = np.pad(current, ((pad, pad), (pad, pad)), mode="constant", constant_values=False)
-        windows = np.lib.stride_tricks.sliding_window_view(padded, (kernel_size, kernel_size))
-        current = np.any(windows, axis=(-2, -1))
-
-    return current.astype(np.uint8)
+    return _binary_morphology(mask, kernel_size=kernel_size, iterations=iterations, reducer=np.any)
 
 
 def binary_opening(mask: np.ndarray, kernel_size: int = 3, iterations: int = 1) -> np.ndarray:
@@ -140,13 +110,12 @@ def segment_lung_fields(
         mask: Binary segmentation mask [H, W] (0/1).
         masked_img: Enhanced image multiplied by mask [H, W], dtype uint8.
     """
-    if enhanced.ndim != 2:
-        raise ValueError(f"Expected 2D grayscale image, got shape={enhanced.shape}")
+    ensure_grayscale_image(enhanced)
     _validate_kernel_size(kernel_size)
     if opening_iterations <= 0 or closing_iterations <= 0:
         raise ValueError("opening_iterations and closing_iterations must be positive integers.")
 
-    enhanced_uint8 = _normalize_to_uint8(enhanced)
+    enhanced_uint8 = normalize_to_uint8(enhanced)
     threshold = otsu_threshold(enhanced_uint8)
 
     mask = _binary_from_threshold(enhanced_uint8, threshold=threshold, foreground_dark=foreground_dark)
@@ -155,3 +124,21 @@ def segment_lung_fields(
 
     masked_img = (enhanced_uint8 * mask).astype(np.uint8)
     return mask.astype(np.uint8), masked_img
+
+
+def _binary_morphology(
+    mask: np.ndarray,
+    kernel_size: int,
+    iterations: int,
+    reducer,
+) -> np.ndarray:
+    """Apply a sliding-window binary morphology reducer."""
+    current = mask.astype(bool)
+    pad = kernel_size // 2
+
+    for _ in range(iterations):
+        padded = np.pad(current, ((pad, pad), (pad, pad)), mode="constant", constant_values=False)
+        windows = np.lib.stride_tricks.sliding_window_view(padded, (kernel_size, kernel_size))
+        current = reducer(windows, axis=(-2, -1))
+
+    return current.astype(np.uint8)

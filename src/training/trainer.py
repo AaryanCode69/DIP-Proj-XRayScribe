@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 from src.config import DATA_CFG, MODEL_CFG, TRAIN_CFG
+from src.data.demo import build_demo_records
 from src.data.dataset import XRayDataset
-from src.data.transforms import collate_batch
+from src.data.transforms import make_collate_fn
 from src.data.vocabulary import Vocabulary
 from src.models.pipeline import ReportGenerationPipeline
 from src.training.loss import make_token_weights, sequence_cross_entropy
@@ -28,18 +28,8 @@ class TrainingResult:
 
 
 def _demo_samples(num_samples: int = 4, image_size: tuple[int, int] = (128, 128)) -> list[dict[str, object]]:
-    rng = np.random.default_rng(TRAIN_CFG.random_seed)
-    samples: list[dict[str, object]] = []
-    reports = [
-        "heart size is normal . no focal consolidation .",
-        "mild bibasal opacity is present .",
-        "no pleural effusion or pneumothorax .",
-        "low lung volume with mild atelectasis .",
-    ]
-    for index in range(num_samples):
-        image = rng.integers(0, 256, size=image_size, dtype=np.uint8)
-        samples.append({"image_path": f"demo_{index}.png", "image_array": image, "report": reports[index % len(reports)]})
-    return samples
+    """Backward-compatible wrapper for older imports/tests."""
+    return build_demo_records(num_samples=num_samples, image_size=image_size, seed=TRAIN_CFG.random_seed)
 
 
 def _build_loader(dataset: XRayDataset, vocabulary: Vocabulary, batch_size: int, shuffle: bool) -> DataLoader:
@@ -47,7 +37,7 @@ def _build_loader(dataset: XRayDataset, vocabulary: Vocabulary, batch_size: int,
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        collate_fn=lambda batch: collate_batch(batch, pad_idx=vocabulary.pad_idx),
+        collate_fn=make_collate_fn(vocabulary.pad_idx),
     )
 
 
@@ -76,6 +66,54 @@ def _compute_average_loss(
     return float(sum(losses) / len(losses))
 
 
+def _build_training_datasets(
+    csv_path: str | None,
+    use_demo_data: bool,
+) -> tuple[XRayDataset, XRayDataset, Vocabulary]:
+    image_size = MODEL_CFG.input_image_size
+
+    if csv_path is not None and Path(csv_path).exists():
+        vocabulary = Vocabulary.build_from_csv(
+            csv_path=csv_path,
+            column_name="report_text",
+            fallback_column_names=("report",),
+            min_freq=2,
+        )
+        train_dataset = XRayDataset(
+            csv_path=csv_path,
+            split="train",
+            random_seed=TRAIN_CFG.random_seed,
+            vocabulary=vocabulary,
+            image_size=image_size,
+        )
+        val_dataset = XRayDataset(
+            csv_path=csv_path,
+            split="val",
+            random_seed=TRAIN_CFG.random_seed,
+            vocabulary=vocabulary,
+            image_size=image_size,
+        )
+        return train_dataset, val_dataset, vocabulary
+
+    if not use_demo_data:
+        raise ValueError("Either csv_path must be provided or use_demo_data must remain True.")
+
+    records = build_demo_records(seed=TRAIN_CFG.random_seed)
+    vocabulary = Vocabulary.build(record["report"] for record in records)
+    train_dataset = XRayDataset(records=records, vocabulary=vocabulary, image_size=image_size)
+    val_dataset = XRayDataset(records=records[: max(1, len(records) // 4)], vocabulary=vocabulary, image_size=image_size)
+    return train_dataset, val_dataset, vocabulary
+
+
+def _count_token_frequencies(dataset: XRayDataset, vocabulary: Vocabulary) -> dict[int, int]:
+    frequencies: dict[int, int] = {}
+    for record in dataset.records:
+        report_text = str(record.get("report_text", record.get("report", "")))
+        for token_id in vocabulary.encode(report_text, add_special_tokens=True):
+            frequencies[token_id] = frequencies.get(token_id, 0) + 1
+    return frequencies
+
+
 def train(
     csv_path: str | None = DATA_CFG.manifest_csv,
     output_dir: str | Path = "artifacts",
@@ -90,29 +128,7 @@ def train(
     batch_size = batch_size or TRAIN_CFG.batch_size
     learning_rate = learning_rate or TRAIN_CFG.learning_rate
 
-    if csv_path is not None and Path(csv_path).exists():
-        vocabulary = Vocabulary.build_from_csv(csv_path=csv_path, column_name="report_text", min_freq=2)
-        train_dataset = XRayDataset(
-            csv_path=csv_path,
-            split="train",
-            random_seed=TRAIN_CFG.random_seed,
-            vocabulary=vocabulary,
-            image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32),
-        )
-        val_dataset = XRayDataset(
-            csv_path=csv_path,
-            split="val",
-            random_seed=TRAIN_CFG.random_seed,
-            vocabulary=vocabulary,
-            image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32),
-        )
-    elif use_demo_data:
-        records = _demo_samples()
-        vocabulary = Vocabulary.build(record["report"] for record in records)
-        train_dataset = XRayDataset(records=records, vocabulary=vocabulary, image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32))
-        val_dataset = XRayDataset(records=records[: max(1, len(records) // 4)], vocabulary=vocabulary, image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32))
-    else:
-        raise ValueError("Either csv_path must be provided or use_demo_data must remain True.")
+    train_dataset, val_dataset, vocabulary = _build_training_datasets(csv_path=csv_path, use_demo_data=use_demo_data)
 
     train_loader = _build_loader(train_dataset, vocabulary=vocabulary, batch_size=batch_size, shuffle=True)
     val_loader = _build_loader(val_dataset, vocabulary=vocabulary, batch_size=batch_size, shuffle=False)
@@ -120,13 +136,7 @@ def train(
     model = ReportGenerationPipeline(vocab_size=len(vocabulary), pad_idx=vocabulary.pad_idx, bos_idx=vocabulary.bos_idx, eos_idx=vocabulary.eos_idx)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
-    token_frequencies: dict[int, int] = {}
-    for record in train_dataset.records:
-        report_text = record.get("report_text", record.get("report", ""))
-        encoded = vocabulary.encode(report_text, add_special_tokens=True)
-        for token_id in encoded:
-            token_frequencies[token_id] = token_frequencies.get(token_id, 0) + 1
-    class_weights = make_token_weights(token_frequencies, vocab_size=len(vocabulary))
+    class_weights = make_token_weights(_count_token_frequencies(train_dataset, vocabulary), vocab_size=len(vocabulary))
 
     model.train()
     last_loss = 0.0
@@ -163,7 +173,7 @@ def train(
             "model_state_dict": model.state_dict(),
             "vocabulary": vocabulary.token_to_id,
             "config": {
-                "image_size": (MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32),
+                "image_size": MODEL_CFG.input_image_size,
                 "vocab_size": len(vocabulary),
             },
         },

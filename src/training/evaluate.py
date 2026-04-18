@@ -7,10 +7,10 @@ from pathlib import Path
 import torch
 
 from src.config import MODEL_CFG
+from src.data.demo import build_demo_records
 from src.data.dataset import XRayDataset
 from src.data.vocabulary import Vocabulary, tokenize
 from src.models.pipeline import ReportGenerationPipeline
-from src.training.trainer import _demo_samples
 
 
 def _load_checkpoint(checkpoint_path: str | Path) -> tuple[ReportGenerationPipeline, Vocabulary]:
@@ -24,16 +24,22 @@ def _load_checkpoint(checkpoint_path: str | Path) -> tuple[ReportGenerationPipel
 
 def evaluate(checkpoint_path: str | None = None, use_demo_data: bool = True) -> list[dict[str, object]]:
     """Run a lightweight evaluation/inference pass."""
+    image_size = MODEL_CFG.input_image_size
     if checkpoint_path is not None and Path(checkpoint_path).exists():
         model, vocabulary = _load_checkpoint(checkpoint_path)
     else:
-        demo_dataset = XRayDataset(records=_demo_samples(), image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32))
+        demo_records = build_demo_records(seed=42)
+        demo_dataset = XRayDataset(records=demo_records, image_size=image_size)
         vocabulary = Vocabulary.build(record["report"] for record in demo_dataset.records)
         demo_dataset.vocabulary = vocabulary
         model = ReportGenerationPipeline(vocab_size=len(vocabulary), pad_idx=vocabulary.pad_idx, bos_idx=vocabulary.bos_idx, eos_idx=vocabulary.eos_idx)
         model.eval()
 
-    dataset = XRayDataset(records=_demo_samples() if use_demo_data else [], vocabulary=vocabulary, image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32))
+    dataset = XRayDataset(
+        records=build_demo_records(seed=42) if use_demo_data else [],
+        vocabulary=vocabulary,
+        image_size=image_size,
+    )
     if len(dataset) == 0:
         return []
 
@@ -81,7 +87,7 @@ def evaluate_test_bleu4(checkpoint_path: str | Path, csv_path: str | Path) -> fl
         split="test",
         random_seed=42,
         vocabulary=vocabulary,
-        image_size=(MODEL_CFG.pooled_h * 32, MODEL_CFG.pooled_w * 32),
+        image_size=MODEL_CFG.input_image_size,
     )
     if len(dataset) == 0:
         return 0.0

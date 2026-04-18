@@ -6,26 +6,12 @@ import math
 
 import numpy as np
 
+from src.dip.common import ensure_grayscale_image, normalize_to_uint8
+
 
 def _normalize_to_uint8(image: np.ndarray) -> np.ndarray:
-    """Convert arbitrary grayscale input to uint8 in [0, 255]."""
-    if image.dtype == np.uint8:
-        return image.copy()
-
-    arr = image.astype(np.float32)
-    min_val = float(arr.min())
-    max_val = float(arr.max())
-
-    if min_val >= 0.0 and max_val <= 1.0:
-        return np.clip(np.rint(arr * 255.0), 0.0, 255.0).astype(np.uint8)
-    if min_val >= 0.0 and max_val <= 255.0:
-        return np.clip(np.rint(arr), 0.0, 255.0).astype(np.uint8)
-    if max_val == min_val:
-        return np.zeros_like(arr, dtype=np.uint8)
-
-    # Fallback normalization for arbitrary intensity ranges (e.g., raw DICOM windows).
-    scaled = (arr - min_val) / (max_val - min_val)
-    return np.clip(np.rint(scaled * 255.0), 0.0, 255.0).astype(np.uint8)
+    """Backward-compatible wrapper around the shared uint8 normalization helper."""
+    return normalize_to_uint8(image)
 
 
 def _pad_to_tile_shape(image: np.ndarray, tile_size: tuple[int, int]) -> tuple[np.ndarray, tuple[int, int]]:
@@ -163,8 +149,7 @@ def clahe_enhance(
     Returns:
         Enhanced image with the same shape as input and dtype `uint8`.
     """
-    if image.ndim != 2:
-        raise ValueError(f"Expected 2D grayscale image, got shape={image.shape}")
+    ensure_grayscale_image(image)
 
     tile_h, tile_w = tile_size
     if tile_h <= 0 or tile_w <= 0:
@@ -172,7 +157,7 @@ def clahe_enhance(
     if clip_limit <= 0:
         raise ValueError("clip_limit must be a positive integer.")
 
-    image_uint8 = _normalize_to_uint8(image)
+    image_uint8 = normalize_to_uint8(image)
     padded, (orig_h, orig_w) = _pad_to_tile_shape(image_uint8, tile_size=tile_size)
     luts = _lut_grid(padded, tile_size=tile_size, clip_limit=clip_limit)
     enhanced_padded = _bilinear_apply(padded, luts=luts, tile_size=tile_size)

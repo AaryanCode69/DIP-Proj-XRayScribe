@@ -1,6 +1,7 @@
 rules.md
 architectureplan.md
 executionplan.md
+implementation.md
 /venv
 .venv/
 __pycache__/

@@ -1,7 +1,4 @@
-"""Project-wide configuration dataclasses for quick bootstrap.
-
-Phase 0 goal: centralize default values so upcoming phases can import from one place.
-"""
+"""Project-wide configuration dataclasses."""
 
 from dataclasses import dataclass
 
@@ -21,6 +18,14 @@ class DIPConfig:
     clip_limit: int = 40
     morphology_kernel_size: int = 3
 
+    @property
+    def image_size(self) -> tuple[int, int]:
+        return (self.image_height, self.image_width)
+
+    @property
+    def tile_size(self) -> tuple[int, int]:
+        return (self.tile_height, self.tile_width)
+
 
 @dataclass(frozen=True)
 class ModelConfig:
@@ -31,6 +36,11 @@ class ModelConfig:
     decoder_hidden_dim: int = 512
     token_embedding_dim: int = 256
     max_seq_len: int = 80
+
+    @property
+    def input_image_size(self) -> tuple[int, int]:
+        """Default model input size matching the extractor downsampling schedule."""
+        return (self.pooled_h * 32, self.pooled_w * 32)
 
 
 @dataclass(frozen=True)

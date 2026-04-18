@@ -10,10 +10,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from src.data.transforms import load_grayscale_image, resize_image, to_tensor
+from src.data.transforms import load_grayscale_image, preprocess_image, resize_image, to_tensor
 from src.data.vocabulary import Vocabulary
-from src.dip.enhancement import clahe_enhance
-from src.dip.segmentation import segment_lung_fields
 
 
 class XRayDataset(Dataset):
@@ -141,30 +139,9 @@ class XRayDataset(Dataset):
     def __getitem__(self, index: int) -> dict[str, torch.Tensor | str]:
         record = self.records[index]
         image_path = record["image_path"]
-        report = record.get("report_text", record.get("report", ""))
-
-        if "image_array" in record and record["image_array"] is not None:
-            image = record["image_array"]
-        else:
-            image = load_grayscale_image(image_path)
-
-        if self.image_size is not None:
-            image = resize_image(image, size=self.image_size)
-
-        if self.preprocess:
-            # Phase 1: manual CLAHE, implemented via NumPy ops in src/dip/enhancement.py.
-            enhanced = clahe_enhance(image, tile_size=self.tile_size, clip_limit=self.clip_limit)
-            # Phase 2: manual Otsu + morphology, implemented via NumPy ops in src/dip/segmentation.py.
-            _mask, masked = segment_lung_fields(
-                enhanced,
-                kernel_size=self.kernel_size,
-                opening_iterations=self.opening_iterations,
-                closing_iterations=self.closing_iterations,
-                foreground_dark=self.foreground_dark,
-            )
-            image_tensor = to_tensor(masked)
-        else:
-            image_tensor = to_tensor(image)
+        report = self._get_report_text(record)
+        image = self._load_image(record)
+        image_tensor = self._prepare_image_tensor(image)
         item: dict[str, torch.Tensor | str] = {
             "image": image_tensor,
             "report": report,
@@ -177,6 +154,34 @@ class XRayDataset(Dataset):
             item["tokens"] = torch.tensor(token_ids, dtype=torch.long)
 
         return item
+
+    @staticmethod
+    def _get_report_text(record: dict[str, object]) -> str:
+        return str(record.get("report_text", record.get("report", "")))
+
+    def _load_image(self, record: dict[str, object]) -> np.ndarray:
+        image_array = record.get("image_array")
+        if image_array is not None:
+            return np.asarray(image_array)
+        return load_grayscale_image(str(record["image_path"]))
+
+    def _prepare_image_tensor(self, image: np.ndarray) -> torch.Tensor:
+        if self.preprocess:
+            processed = preprocess_image(
+                image,
+                size=self.image_size,
+                tile_size=self.tile_size,
+                clip_limit=self.clip_limit,
+                kernel_size=self.kernel_size,
+                opening_iterations=self.opening_iterations,
+                closing_iterations=self.closing_iterations,
+                foreground_dark=self.foreground_dark,
+            )
+            return to_tensor(processed)
+
+        if self.image_size is not None:
+            image = resize_image(image, size=self.image_size)
+        return to_tensor(image)
 
 
 # Backward-compatible alias used by existing scripts/tests.

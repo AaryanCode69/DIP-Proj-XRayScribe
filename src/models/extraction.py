@@ -29,7 +29,7 @@ class CNNExtractor(nn.Module):
         if backbone != "resnet18":
             raise ValueError(f"Unsupported backbone: {backbone}. Only resnet18 is implemented.")
 
-        weights = None
+        weights = models.ResNet18_Weights.DEFAULT if pretrained else None
         self.backbone = models.resnet18(weights=weights)
         self.backbone.fc = nn.Identity()
 
